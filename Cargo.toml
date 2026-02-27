@@ -1,10 +1,10 @@
 [package]
 name = "noahh"
-version = "3.7.3"
+version = "3.7.4"
 authors = [
     "NoahBajsToa <noahbajstoa@gmail.com>",
-    "William",
-    "ConfiG <cygrust@cgyt.ru>",
+    "William <ilaca314@gmail.com>",
+    "ConfiG <cgytrus@confsasd.ru>",
 ]
 edition = "2021"
 build = "build.rs"
