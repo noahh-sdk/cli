@@ -1,0 +1,91 @@
+name: Draft Release
+
+on:
+  workflow_dispatch:
+
+jobs:
+  draft:
+    name: Draft Release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Define variables
+        id: info
+        run: |
+          VERSION=v$(cat Cargo.toml | sed -nr 's/version = \"(.+)\"/\1/p' | head -1)
+          # gets the latest action run from the main branch
+          BRANCH=main
+          API_URL="https://api.github.com/repos/noahh-sdk/cli/actions/workflows/build.yml/runs?per_page=1&branch=$BRANCH&event=push&status=success"
+          RUN_ID=$(curl $API_URL | jq .workflow_runs[0].id)
+
+          # test if release already exists
+          set +e
+          curl --fail "https://api.github.com/repos/noahh-sdk/cli/releases/tags/$VERSION" --silent --output /dev/null
+          RESULT=$?
+          set -e
+          
+          if [ $RESULT -eq 0 ]; then
+            echo "Release $VERSION already exists! Not replacing it.."
+            exit 1
+          fi
+
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "run_id=$RUN_ID" >> $GITHUB_OUTPUT
+
+      # - uses: actions/download-artifact@v4
+      #   with:
+      #     run-id: ${{ steps.info.outputs.run_id }}
+      #     path: ${{ github.workspace }}/artifacts
+      #     github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      # not using download-artifacts until this is possible:
+      # https://github.com/actions/download-artifact/issues/143
+      - name: Download artifacts
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const fs = require('node:fs/promises');
+
+            const path = `${process.env.GITHUB_WORKSPACE}/artifacts`;
+            await fs.mkdir(path, { recursive: true });
+
+            const allArtifacts = await github.rest.actions.listWorkflowRunArtifacts({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: ${{ steps.info.outputs.run_id }},
+            });
+            console.log(`Found ${allArtifacts.data.artifacts.length} artifacts!`);
+            for (const artifact of allArtifacts.data.artifacts) {
+              console.log(`Downloading ${artifact.name}`);
+              const download = await github.rest.actions.downloadArtifact({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                artifact_id: artifact.id,
+                archive_format: 'zip',
+              });
+              
+              await fs.writeFile(`${path}/${artifact.name}.zip`, Buffer.from(download.data));
+            }
+        
+      - name: Rename files
+        run: |
+          cd ${{ github.workspace }}/artifacts
+          mv noahh-cli-win.zip noahh-cli-${{ steps.info.outputs.version }}-win.zip
+          mv noahh-cli-mac.zip noahh-cli-${{ steps.info.outputs.version }}-mac.zip
+          mv noahh-cli-linux.zip noahh-cli-${{ steps.info.outputs.version }}-linux.zip
+
+      - name: Create Draft Release
+        uses: softprops/action-gh-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ steps.info.outputs.version }}
+          name: CLI ${{ steps.info.outputs.version }}
+          body: |
+            ## Changelog
+            - Something
+          draft: true
+          files: |
+            ./artifacts/*.zip
+

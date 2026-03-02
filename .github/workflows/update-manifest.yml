@@ -1,0 +1,61 @@
+# Update cli manifest in noahh-sdk/homebrew-noahh
+# TODO: update the winget one too :P
+name: Update CLI Manifests
+
+on:
+  # trigger when a new release is released
+  release:
+    types:
+      - released
+  
+  workflow_dispatch: 
+
+jobs:
+  trigger:
+    name: Update homebrew repo
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout homebrew tap
+      uses: actions/checkout@v4
+      with:
+        repository: noahh-sdk/homebrew-noahh
+        path: homebrew-noahh
+        ssh-key: ${{ secrets.NOAHH_BOT_SSH_KEY }}
+
+    - name: Fetch release info
+      uses: actions/github-script@v6
+      id: fetch-mac-release
+      with:
+        result-encoding: string
+        script: |
+          let rel = await github.rest.repos.getLatestRelease({
+            owner: 'noahh-sdk',
+            repo: 'cli',
+          });
+
+          for (let asset of rel.data.assets) {
+            if (asset.name.endsWith('-mac.zip')) {
+              return asset.browser_download_url;
+            }
+          }
+
+    - name: Update mac homebrew repo
+      shell: bash
+      run: |
+        URL="${{ steps.fetch-mac-release.outputs.result }}"
+        NOAHH_HASH=$(curl -L $URL | sha256sum | awk '{print $1}')
+        cd homebrew-noahh/Formula
+        cp noahh-cli.rb.in noahh-cli.rb
+        sed -i -e "s|DOWNLOAD_URL|$URL|g" noahh-cli.rb
+        sed -i -e "s/HASH/$NOAHH_HASH/g" noahh-cli.rb
+
+    - name: Push to repo
+      shell: bash
+      working-directory: ${{ github.workspace }}/homebrew-noahh
+      run: |
+        git config --local user.email "98838525+NoahhBot@users.noreply.github.com"
+        git config --local user.name "NoahhBot"
+        git add .
+        git commit -m "Update CLI"
+        git push
+
